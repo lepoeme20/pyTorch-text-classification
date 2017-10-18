@@ -9,38 +9,6 @@ import argparse
 import datetime
 import data_helpers
 from text_cnn import TextCNN
-import pickle
-
-
-'''
-parser = argparse.ArgumentParser(description='CNN text classificer')
-# Model Hyperparameters
-parser.add_argument('-embed-dim', type=int, default=128, help='number of embedding dimension [default: 128]')
-parser.add_argument('-epochs', type=int, default=200, help='number of epochs for train [default: 200]')
-parser.add_argument('-batch-size', type=int, default=64, help='batch size for training [default: 64]')
-parser.add_argument('-log-interval',  type=int, default=1,   help='how many steps to wait before logging training status [default: 1]')
-parser.add_argument('-test-interval', type=int, default=100, help='how many steps to wait before testing [default: 100]')
-parser.add_argument('-save-interval', type=int, default=500, help='how many steps to wait before saving [default:500]')
-parser.add_argument('-save-dir', type=str, default='snapshot', help='where to save the snapshot')
-# data
-parser.add_argument('-shuffle', action='store_true', default=False, help='shuffle the data every epoch' )
-# model
-parser.add_argument('-dropout', type=float, default=0.5, help='the probability for dropout [default: 0.5]')
-parser.add_argument('-max-norm', type=float, default=3.0, help='l2 constraint of parameters [default: 3.0]')
-
-parser.add_argument('-kernel-num', type=int, default=100, help='number of each kind of kernel')
-parser.add_argument('-kernel-sizes', type=str, default='3,4,5', help='comma-separated kernel size to use for convolution')
-parser.add_argument('-static', action='store_true', default=False, help='fix the embedding')
-# device
-parser.add_argument('-device', type=int, default=-1, help='device to use for iterate data, -1 mean cpu [default: -1]')
-parser.add_argument('-no-cuda', action='store_true', default=False, help='disable the gpu' )
-# option
-parser.add_argument('-snapshot', type=str, default=None, help='filename of model snapshot [default: None]')
-parser.add_argument('-predict', type=str, default=None, help='predict the sentence given')
-parser.add_argument('-test', action='store_true', default=False, help='train or test')
-args = parser.parse_args()
-print(args)
-'''
 
 
 parser = argparse.ArgumentParser(description='CNN text classificer')
@@ -79,9 +47,9 @@ parser.add_argument('-save-dir', type=str, default='../RUNS/', help='Data size')
 parser.add_argument('-saved-model', type=str, default=None, help='Saved model [default: None]')
 args, unknown = parser.parse_known_args()
 
-'''
+
 print("Loading data...")
-x_text, y = data_helpers.load_json(args.json_path, scaling = True)
+x_text, y = data_helpers.load_json(args.json_path)
 max_len = max([len(x.split(" ")) for x in x_text])
 x, vocab_dic = data_helpers.word2idx(x_text)
 x = data_helpers.fill_zeros(x, max_len)
@@ -106,24 +74,6 @@ y_train, y_dev, y_test = y_shuffled[:trn_sample_index], y_shuffled[trn_sample_in
 print("Vocabulary Size: {:d}".format(len(vocab_dic)))
 print("Train/Dev split: {:d}/{:d}/{:d}".format(len(y_train), len(y_dev), len(y_test)))
 
-pickle.dump(x_train, open('./data/amazon/x_train.p', 'wb'), protocol = 4)
-pickle.dump(y_train, open('./data/amazon/y_train.p', 'wb'))
-pickle.dump(x_dev, open('./data/amazon/x_dev.p', 'wb'))
-pickle.dump(y_dev, open('./data/amazon/y_dev.p', 'wb'))
-pickle.dump(x_test, open('./data/amazon/x_test.p', 'wb'))
-pickle.dump(y_test, open('./data/amazon/y_test.p', 'wb'))
-pickle.dump(vocab_dic, open('./data/amazon/vocab_dic.p', 'wb'))
-pickle.dump(max_len, open('./data/amazon/max_len.p', 'wb'))
-'''
-
-print("loading data....")
-x_train = pickle.load(open('../data/amazon/x_train.p', 'rb'))
-y_train = pickle.load(open('../data/amazon/y_train.p', 'rb'))
-x_dev = pickle.load(open('../data/amazon/x_dev.p', 'rb'))
-y_dev = pickle.load(open('../data/amazon/y_dev.p', 'rb'))
-vocab_dic = pickle.load(open('../data/amazon/vocab_dic.p', 'rb'))
-max_len = pickle.load(open('../data/amazon/max_len.p', 'rb'))
-print("loading data is done")
 
 
 # update args and print
@@ -154,75 +104,76 @@ def train_step(x_batch, y_batch, x_dev, y_dev,  model, args):
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-
     model.train()
 
+    batches = data_helpers.batch_iter(
+        list(zip(x_train, y_train)), args.batch_size, args.num_epochs)
 
-    x_batch_Variable = Variable(x_batch).cuda()
-    y_batch_Variable = Variable(y_batch).cuda()
+    for batch in batches:
+        x_batch, y_batch = zip(*batch)
+        x_batch_Tensor, y_batch_Tensor = data_helpers.tensor4batch(x_batch, y_batch, args)
 
+        x_batch_Variable = Variable(x_batch_Tensor).cuda()
+        y_batch_Variable = Variable(y_batch_Tensor).cuda()
 
-    #feature.data.t_(), target.data.sub_(1)  # batch first, index align
+        optimizer.zero_grad()
+        logit = model(x_batch_Variable)
 
-    #feature, target = feature.cuda(), target.cuda()
+        loss = F.cross_entropy(logit, torch.max(y_batch_Variable, 1)[1])
+        loss.backward()
+        optimizer.step()
 
-    optimizer.zero_grad()
-    logit = model(x_batch_Variable)
+        args.iter += 1
 
-    #print('logit vector', logit.size())
-    #print('target vector', y_batch_Variable.size())
+        if args.iter % args.log_interval == 0:
+            corrects = (torch.max(logit, 1)[1] == torch.max(y_batch_Variable, 1)[1]).sum()
+            corrects = corrects.data.cpu().numpy()[0]
+            accuracy = 100.0 * corrects/args.batch_size
+            sys.stdout.write(
+                '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(args.iter,
+                                                                         loss.data[0],
+                                                                         accuracy,
+                                                                         corrects,
+                                                                         args.batch_size))
 
-    loss = F.cross_entropy(logit, torch.max(y_batch_Variable, 1)[1])
-    loss.backward()
-    optimizer.step()
+        if args.iter % args.dev_interval == 0:
+            dev_step(x_dev, y_dev, model, args)
 
-    args.iter += 1
+        if args.iter % args.save_interval == 0:
+            if not os.path.isdir(args.save_dir): os.makedirs(args.save_dir)
+            save_prefix = os.path.join(args.save_dir, 'snapshot')
+            save_path = '{}_steps{}.pt'.format(save_prefix, args.iter)
+            torch.save(model, save_path)
 
-    if args.iter % args.log_interval == 0:
-        corrects = (torch.max(logit, 1)[1] == torch.max(y_batch_Variable, 1)[1]).sum()
-        corrects = corrects.data.cpu().numpy()[0]
-        accuracy = 100.0 * corrects/args.batch_size
-        sys.stdout.write(
-            '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(args.iter,
-                                                                     loss.data[0],
-                                                                     accuracy,
-                                                                     corrects,
-                                                                     args.batch_size))
-    if args.iter % args.dev_interval == 0:
-        dev_step(x_dev, y_dev, model, args)
-    if args.iter % args.save_interval == 0:
-        if not os.path.isdir(args.save_dir): os.makedirs(args.save_dir)
-        save_prefix = os.path.join(args.save_dir, 'snapshot')
-        save_path = '{}_steps{}.pt'.format(save_prefix, args.iter)
-        torch.save(model, save_path)
 
 
 print("make dev_step def")
 def dev_step(x_dev, y_dev, model, args):
+    model.cuda()
     model.eval()
-    corrects, avg_loss = 0, 0
+    corrects_dev, avg_loss = 0, 0
 
     batches_dev = data_helpers.batch_iter(
-        list(zip(x_dev, y_dev)), args.batch_size, args.num_epochs)
+        list(zip(x_dev, y_dev)), args.batch_size, 1)
 
     for batch in batches_dev:
         x_dev_batch, y_dev_batch = zip(*batch)
         x_dev_Tensor, y_dev_Tensor = data_helpers.tensor4batch(x_dev_batch, y_dev_batch, args)
+
 
         x_dev_Variable = Variable(x_dev_Tensor).cuda()
         y_dev_Variable = Variable(y_dev_Tensor).cuda()
 
         logit = model(x_dev_Variable)
 
-
         loss = F.cross_entropy(logit,  torch.max(y_dev_Variable, 1)[1], size_average=False)
         avg_loss += loss.data[0]
-        corrects += (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).sum()
-        corrects = corrects.data.cpu().numpy()[0]
+        corrects_dev += (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).data.sum()
+
 
     size = len(y_dev)
-    avg_loss = args.dev_loss/size
-    accuracy = 100.0 * corrects/size
+    avg_loss = avg_loss/size
+    accuracy = 100.0 * corrects_dev/size
 
     args.list4ES.append(accuracy)
 
@@ -237,19 +188,8 @@ def dev_step(x_dev, y_dev, model, args):
     model.train()
     print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
                                                                        accuracy,
-                                                                       corrects,
+                                                                       corrects_dev,
                                                                        size))
 
 
-print("make batches")
-# Generate batches
-batches = data_helpers.batch_iter(
-    list(zip(x_train, y_train)), args.batch_size, args.num_epochs)
-
-print("finally start training loop")
-# Training loop. For each batch...
-for batch in batches:
-    x_batch, y_batch = zip(*batch)
-    x_batch_Tensor, y_batch_Tensor = data_helpers.tensor4batch(x_batch, y_batch, args)
-    train_step(x_batch_Tensor, y_batch_Tensor, x_dev, y_dev, cnn, args)
-
+train_step(x_train, y_train, x_dev, y_dev, cnn, args)

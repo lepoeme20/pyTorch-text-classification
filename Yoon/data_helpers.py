@@ -5,18 +5,11 @@ import json
 import torch
 import random
 
-json_path = './data/amazon/Video_Games_5.json'
-
-def load_json(json_path, scaling = False):
+def load_json(json_path):
     data_from_json = []
     for line in codecs.open(json_path, 'rb'):
         data_from_json.append(json.loads(line))
-
-    if scaling == False:
-        data = make_data(data_from_json)
-    else:
-        data = make_data_scaling(data_from_json)
-
+    data = make_data(data_from_json)
     return data
 
 # positive_labels = [[0, 1] for _ in positive_examples]
@@ -34,76 +27,6 @@ def make_data(data_from_json):
                 y_tmp = [0, 1]
                 y.append(y_tmp)
     return [x_text, y]
-
-
-def make_data_scaling(data_from_json):
-    neg_num = 0
-    for i, x in enumerate(data_from_json):
-        if x['overall'] == 1. or x['overall'] == 2.:
-            neg_num += 1
-    return scaling_data(data_from_json, neg_num)
-
-
-def scaling_data(data_from_json, neg_num):
-    x_pos = []
-    y_pos = []
-    x_neg = []
-    y_neg = []
-    x_text = []
-    y = []
-    if neg_num < 100000:
-        pos_num = 200000 - neg_num
-        for i, x in enumerate(data_from_json):
-            if x['overall'] != 3.:
-                if x['overall'] == 1. or x['overall'] == 2.:
-                    x_neg.append(x['reviewText'])
-                    y_tmp = [1, 0]
-                    y_neg.append(y_tmp)
-                elif x['overall'] == 4. or x['overall'] == 5.:
-                    x_pos.append(x['reviewText'])
-                    y_tmp = [0, 1]
-                    y_pos.append(y_tmp)
-
-        shuffle_indices = np.random.permutation(np.arange(pos_num))
-        new_x_pos = cut_list(x_pos, shuffle_indices)
-        new_y_pos = cut_list(y_pos, shuffle_indices)
-
-        x_text.extend(new_x_pos)
-        x_text.extend(x_neg)
-
-        y.extend(new_y_pos)
-        y.extend(y_neg)
-    else:
-        new_neg_num = 100000
-        pos_num = 100000
-        for i, x in enumerate(data_from_json):
-            if x['overall'] != 3.:
-                if x['overall'] == 1. or x['overall'] == 2.:
-                    x_neg.append(x['reviewText'])
-                    y_tmp = [1, 0]
-                    y_neg.append(y_tmp)
-                elif x['overall'] == 4. or x['overall'] == 5.:
-                    x_pos.append(x['reviewText'])
-                    y_tmp = [0, 1]
-                    y_pos.append(y_tmp)
-        shuffle_indices = np.random.permutation(np.arange(pos_num))
-        new_x_pos = cut_list(x_pos, shuffle_indices)
-        new_y_pos = cut_list(y_pos, shuffle_indices)
-
-        x_text.extend(new_x_pos)
-        x_text.extend(x_neg)
-
-        y.extend(new_y_pos)
-        y.extend(y_neg)
-    return [x_text, y]
-
-def cut_list(_list, indices):
-    shuffled = []
-    for idx in indices:
-        shuffled.append(_list[idx])
-    return shuffled
-
-
 
 def clean_str(string):
     """
@@ -147,26 +70,6 @@ def batch_iter(data, batch_size, num_epochs, shuffle=True):
             yield shuffled_data[start_index:end_index]
 
 
-# Make vocabulary
-# def word2idx(sentence_list):
-#     word_to_idx = {}
-#     for sentence in sentence_list:
-#         clean_sen = clean_str(sentence)
-#         word_list = clean_sen.split(" ")
-#         for word in word_list:
-#             if word not in word_to_idx:
-#                 word_to_idx[word] = len(word_to_idx) + 1  # +1 to leave out zero for padding
-#     idx_list = []
-#     for sentence in sentence_list:
-#         idx = []
-#         clean_sen = clean_str(sentence)
-#         word_list = clean_sen.split(" ")
-#         for word in word_list:
-#             idx.append(int(word_to_idx[word]))
-#         idx_list.append(idx)
-#     return idx_list, word_to_idx
-
-
 def word2idx(sentence_list):
     word_to_idx = {}
     idx_list = []
@@ -184,8 +87,6 @@ def word2idx(sentence_list):
         if count % 5000 == 0:
             print("I'm working at word2idx fn", count, "/", len(sentence_list))
     return idx_list, word_to_idx
-
-
 
 
 
@@ -216,15 +117,3 @@ def tensor4batch(data_x, data_y, args):
     for i, x in enumerate(data_y):
         tensor4y[i] = torch.LongTensor(x.tolist())
     return tensor4x, tensor4y
-
-'''
-# For without mini-batch dev data set 
-def tensor4dev(dev_x, dev_y):
-    tensor4x = torch.zeros(dev_x.shape[0], dev_x.shape[1]).type(torch.LongTensor)
-    for i, x in enumerate(dev_x):
-        tensor4x[i] = torch.LongTensor(x)
-    tensor4y = torch.zeros(dev_y.shape[0], dev_y.shape[1]).type(torch.FloatTensor)
-    for i, x in enumerate(dev_y):
-        tensor4y[i] = torch.LongTensor(x.tolist())
-    return tensor4x, tensor4y
-'''
