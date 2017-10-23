@@ -4,6 +4,7 @@ import codecs
 import json
 import torch
 import random
+import time
 
 def load_json(json_path):
     data_from_json = []
@@ -48,6 +49,14 @@ def clean_str(string):
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
 
+def max_len(sentence_list):
+    sen_len = np.empty((1,len(sentence_list)), int)
+    for i, x in enumerate(sentence_list):
+        clean_sen = clean_str(x)
+        word_list = clean_sen.split(" ")
+        sen_len[0][i] = len(word_list)
+    return max(sen_len)
+
 def batch_iter(data, batch_size, num_epochs, shuffle=True):
     """
     Generates a batch iterator for a dataset.
@@ -70,23 +79,35 @@ def batch_iter(data, batch_size, num_epochs, shuffle=True):
             yield shuffled_data[start_index:end_index]
 
 
-def word2idx(sentence_list):
+def word2idx_array(sentence_list, max_len):
     word_to_idx = {}
-    idx_list = []
+    idx_array = np.empty((len(sentence_list),max_len), int)
     count = 0
-    for sentence in sentence_list:
-        idx = []
-        clean_sen = clean_str(sentence)
+    start = time.time()
+    for i, x in enumerate(sentence_list):
+        idx_tmp = np.empty((0,1), int)
+        clean_sen = clean_str(x)
         word_list = clean_sen.split(" ")
+
         for word in word_list:
             if word not in word_to_idx:
                 word_to_idx[word] = len(word_to_idx) + 1  # +1 to leave out zero for padding
-            idx.append(int(word_to_idx[word]))
-        idx_list.append(idx)
+            idx_tmp = np.vstack((idx_tmp,(int(word_to_idx[word]))))
+        num_zeros = max_len - len(idx_tmp)
+        zeros_array = np.zeros((1,num_zeros))
+        sen_max_len = np.hstack((idx_tmp.T, zeros_array))
+
+        idx_array[i] = sen_max_len
+
         count += 1
-        if count % 5000 == 0:
-            print("I'm working at word2idx fn", count, "/", len(sentence_list))
-    return idx_list, word_to_idx
+        if count % 1000 == 0:
+            end = time.time()
+            sys.stdout.write(
+                "\rI'm working at word2idx FN %({}/{}, {})".format(count,
+                                                               len(sentence_list),
+                                                                   end-start))
+            start = end
+    return idx_array, word_to_idx
 
 
 
