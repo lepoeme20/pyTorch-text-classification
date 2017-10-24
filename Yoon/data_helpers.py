@@ -5,13 +5,30 @@ import json
 import torch
 import random
 import time
+import sys
 
-def load_json(json_path):
+
+####################################################################################
+####################################################################################
+#############                                                    ###################
+#############       make data set scaling unbalanced or not      ###################
+#############                                                    ###################
+####################################################################################
+####################################################################################
+
+def load_json(json_path, scaling = False):
     data_from_json = []
     for line in codecs.open(json_path, 'rb'):
         data_from_json.append(json.loads(line))
-    data = make_data(data_from_json)
+
+    if scaling == False:
+        data = make_data(data_from_json)
+    else:
+        data = make_data_scaling(data_from_json)
+
     return data
+
+
 
 # positive_labels = [[0, 1] for _ in positive_examples]
 # negative_labels = [[1, 0] for _ in negative_examples]
@@ -28,6 +45,85 @@ def make_data(data_from_json):
                 y_tmp = [0, 1]
                 y.append(y_tmp)
     return [x_text, y]
+
+
+def make_data_scaling(data_from_json):
+    neg_num = 0
+    for i, x in enumerate(data_from_json):
+        if x['overall'] == 1. or x['overall'] == 2.:
+            neg_num += 1
+    return scaling_data(data_from_json, neg_num)
+
+
+def scaling_data(data_from_json, neg_num):
+    x_pos = []
+    y_pos = []
+    x_neg = []
+    y_neg = []
+    x_text = []
+    y = []
+    if neg_num < 100000:
+        pos_num = 200000 - neg_num
+        for i, x in enumerate(data_from_json):
+            if x['overall'] != 3.:
+                if x['overall'] == 1. or x['overall'] == 2.:
+                    x_neg.append(x['reviewText'])
+                    y_tmp = [1, 0]
+                    y_neg.append(y_tmp)
+                elif x['overall'] == 4. or x['overall'] == 5.:
+                    x_pos.append(x['reviewText'])
+                    y_tmp = [0, 1]
+                    y_pos.append(y_tmp)
+
+        shuffle_indices = np.random.permutation(np.arange(pos_num))
+        new_x_pos = cut_list(x_pos, shuffle_indices)
+        new_y_pos = cut_list(y_pos, shuffle_indices)
+
+        x_text.extend(new_x_pos)
+        x_text.extend(x_neg)
+
+        y.extend(new_y_pos)
+        y.extend(y_neg)
+    else:
+        new_neg_num = 100000
+        pos_num = 100000
+        for i, x in enumerate(data_from_json):
+            if x['overall'] != 3.:
+                if x['overall'] == 1. or x['overall'] == 2.:
+                    x_neg.append(x['reviewText'])
+                    y_tmp = [1, 0]
+                    y_neg.append(y_tmp)
+                elif x['overall'] == 4. or x['overall'] == 5.:
+                    x_pos.append(x['reviewText'])
+                    y_tmp = [0, 1]
+                    y_pos.append(y_tmp)
+        shuffle_indices = np.random.permutation(np.arange(pos_num))
+        new_x_pos = cut_list(x_pos, shuffle_indices)
+        new_y_pos = cut_list(y_pos, shuffle_indices)
+
+        x_text.extend(new_x_pos)
+        x_text.extend(x_neg)
+
+        y.extend(new_y_pos)
+        y.extend(y_neg)
+    return [x_text, y]
+
+
+def cut_list(_list, indices):
+    shuffled = []
+    for idx in indices:
+        shuffled.append(_list[idx])
+    return shuffled
+
+
+####################################################################################
+####################################################################################
+#############                                                    ###################
+#############                     basic tokenizer                ###################
+#############                                                    ###################
+####################################################################################
+####################################################################################
+
 
 def clean_str(string):
     """
@@ -49,6 +145,15 @@ def clean_str(string):
     string = re.sub(r"\s{2,}", " ", string)
     return string.strip().lower()
 
+
+####################################################################################
+####################################################################################
+#############                                                    ###################
+#############     calculate max length of tokenized sentence     ###################
+#############                                                    ###################
+####################################################################################
+####################################################################################
+
 def max_len(sentence_list):
     sen_len = np.empty((1,len(sentence_list)), int)
     for i, x in enumerate(sentence_list):
@@ -63,14 +168,24 @@ def batch_iter(data, batch_size, num_epochs, shuffle=True):
     """
     shuffled_data = []
     data_size = len(data)
+    pos = []
+    neg = []
+    for i, x in enumerate(data):
+        if x[1][0] == 0:
+            pos.append(x)
+        else:
+            neg.append(x)
     num_batches_per_epoch = int((len(data)-1)/batch_size) + 1
     for epoch in range(num_epochs):
         # Shuffle the data at each epoch
         if shuffle:
-            ind_shuffle = list(range(len(data)))
-            random.shuffle(ind_shuffle)
-            for idx in ind_shuffle:
-                shuffled_data.append(data[idx])
+            for batch_num in range(num_batches_per_epoch):
+                random_pos_index = np.random.choice(len(pos), int(batch_size / 2))
+                random_neg_index = np.random.choice(len(neg), int(batch_size / 2))
+                for i, x in enumerate(random_neg_index):
+                    shuffled_data.append(neg[x])
+                for i, x in enumerate(random_pos_index):
+                    shuffled_data.append(pos[x])
         else:
             shuffled_data = data
         for batch_num in range(num_batches_per_epoch):
