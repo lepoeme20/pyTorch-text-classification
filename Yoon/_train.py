@@ -177,8 +177,10 @@ def dev_step(x_dev, y_dev, model, args):
 
     args.list4ES.append(accuracy)
 
+    args.list4ES.append(accuracy)
     if len(args.list4ES) > 4:
-        if args.list4ES[len(args.list4ES) - 1] <= args.list4ES[len(args.list4ES) - 5]:
+        sub = args.list4ES[len(args.list4ES) - 1] - args.list4ES[len(args.list4ES) - 5]
+        if abs(sub) < 0.001:
             if not os.path.isdir(args.save_dir): os.makedirs(args.save_dir)
             save_prefix = os.path.join(args.save_dir, 'snapshot')
             save_path = '{}_steps{}.pt'.format(save_prefix, args.iter)

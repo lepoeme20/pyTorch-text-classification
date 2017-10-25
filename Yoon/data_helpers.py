@@ -162,6 +162,15 @@ def max_len(sentence_list):
         sen_len[0][i] = len(word_list)
     return max(sen_len)
 
+
+####################################################################################
+####################################################################################
+#############                                                    ###################
+#############                    For mini-Batch                  ###################
+#############                                                    ###################
+####################################################################################
+####################################################################################
+
 def batch_iter(data, batch_size, num_epochs, shuffle=True):
     """
     Generates a batch iterator for a dataset.
@@ -193,6 +202,23 @@ def batch_iter(data, batch_size, num_epochs, shuffle=True):
             end_index = min((batch_num + 1) * batch_size, data_size)
             yield shuffled_data[start_index:end_index]
 
+def tensor4batch(data_x, data_y, args):
+    tensor4x = torch.zeros(args.batch_size, args.max_len).type(torch.LongTensor)
+    for i, x in enumerate(data_x):
+        tensor4x[i] = torch.LongTensor(x)
+    tensor4y = torch.zeros(args.batch_size, args.target_num).type(torch.FloatTensor)
+    for i, x in enumerate(data_y):
+        tensor4y[i] = torch.LongTensor(x.tolist())
+    return tensor4x, tensor4y
+
+
+####################################################################################
+####################################################################################
+#############                                                    ###################
+#############        convert word to index and fill zeros        ###################
+#############                                                    ###################
+####################################################################################
+####################################################################################
 
 def word2idx_array(sentence_list, max_len):
     word_to_idx = {}
@@ -225,31 +251,3 @@ def word2idx_array(sentence_list, max_len):
     return idx_array, word_to_idx
 
 
-
-def fill_zeros(sentence_list, sentence_size):
-    filled_sentence = []
-    count = 0
-    for sentence in sentence_list:
-        residual = sentence_size - len(sentence)
-        if residual > 0.0:
-            sentence.extend(list(np.zeros((int(residual))).astype(int)))
-            filled_sentence.append(np.array(sentence))
-        elif residual < 0.0:
-            cut_sentence = sentence[:int(residual)]
-            filled_sentence.append(np.array(cut_sentence))
-        else:
-            filled_sentence.append(np.array(sentence))
-        count += 1
-        if count % 5000 == 0:
-            print("I'm working at fill_zeors fn", count, "/", len(sentence_list))
-    return filled_sentence
-
-
-def tensor4batch(data_x, data_y, args):
-    tensor4x = torch.zeros(args.batch_size, args.max_len).type(torch.LongTensor)
-    for i, x in enumerate(data_x):
-        tensor4x[i] = torch.LongTensor(x)
-    tensor4y = torch.zeros(args.batch_size, args.target_num).type(torch.FloatTensor)
-    for i, x in enumerate(data_y):
-        tensor4y[i] = torch.LongTensor(x.tolist())
-    return tensor4x, tensor4y
