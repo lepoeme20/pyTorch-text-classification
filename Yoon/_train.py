@@ -9,7 +9,7 @@ import argparse
 import datetime
 import data_helpers
 from text_cnn import TextCNN
-
+import time
 
 parser = argparse.ArgumentParser(description='CNN text classificer')
 
@@ -22,16 +22,17 @@ parser.add_argument('-dropout', type=float, default=0.5, help='the probability f
 parser.add_argument('-max-norm', type=float, default=3.0, help='l2 constraint of parameters [default: 3.0]')
 
 # Training parameters
-parser.add_argument('-batch-size', type=int, default=32, help='batch size for training [default: 64]')
-parser.add_argument('-num-epochs', type=int, default=50, help='number of epochs for train [default: 200]')
+parser.add_argument('-batch-size', type=int, default=64, help='batch size for training [default: 64]')
+parser.add_argument('-num-epochs', type=int, default=10, help='number of epochs for train [default: 200]')
 parser.add_argument('-dev-interval', type=int, default=100, help='how many steps to wait before testing [default: 100]')
 parser.add_argument('-save-interval', type=int, default=500, help='how many steps to wait before saving [default:500]')
 parser.add_argument('-log-interval',  type=int, default=1,   help='how many steps to wait before logging training status [default: 1]')
 parser.add_argument('-static', action='store_true', default=False, help='fix the embedding')
 parser.add_argument('-list4ES', type=list,  default=[], help='Empty list for appending dev-acc')
+parser.add_argument('-corrects-index', type=list,  default=[], help='Empty list for appending dev-acc')
 
 # Data Set
-parser.add_argument('-json-path', type=str, default="./data/amazon/Video_Games_5.json", help='Data source')
+parser.add_argument('-json-path', type=str, default="../data/amazon/Video_Games_5.json", help='Data source')
 parser.add_argument('-vocab-size', type=int, default=0 , help='Vocab size')
 parser.add_argument('-max-len', type=int, default=0 , help='max length among all of sentences')
 parser.add_argument('-data-size', type=int, default=0, help='Data size')
@@ -44,22 +45,21 @@ parser.add_argument('-target-num', type=int, default=2, help='Number of classifi
 # saver
 parser.add_argument('-iter', type=int, default=0, help='For checking iteration')
 parser.add_argument('-save-dir', type=str, default='../RUNS/', help='Data size')
-parser.add_argument('-saved-model', type=str, default=None, help='Saved model [default: None]')
+parser.add_argument('-final-model-dir', type=str, default='../Final_model/', help='Dir to saving learned model')
+parser.add_argument('-snapshot', type=str, default='../Final_model/', help='dir learned model')
+parser.add_argument('-model-name', type=str, default='CNN_1_layer', help='Model name')
+parser.add_argument('-data-name', type=str, default='Video_Games_5', help='Data name')
 args, unknown = parser.parse_known_args()
 
-
 print("Loading data...")
-x_text, y = data_helpers.load_json(args.json_path)
+x_text, y = data_helpers.load_json(args.json_path, scaling = False)
 max_len = data_helpers.max_len(x_text)
-x, vocab_dic = data_helpers.word2idx(x_text, max_len)
-x = data_helpers.fill_zeros(x, max_len)
-print("list to array...")
-x = np.array(x)
+x, vocab_dic = data_helpers.word2idx_array(x_text, max_len)
 y = np.array(y)
 
 
 # Randomly shuffle data
-np.random.seed(10)
+np.random.seed(int(time.time()))
 shuffle_indices = np.random.permutation(np.arange(len(y)))
 x_shuffled = x[shuffle_indices]
 y_shuffled = y[shuffle_indices]
@@ -74,49 +74,46 @@ y_train, y_dev, y_test = y_shuffled[:trn_sample_index], y_shuffled[trn_sample_in
 print("Vocabulary Size: {:d}".format(len(vocab_dic)))
 print("Train/Dev split: {:d}/{:d}/{:d}".format(len(y_train), len(y_dev), len(y_test)))
 
-
-
 # update args and print
 args.embed_num = len(vocab_dic)
-args.max_len = max_len
+args.max_len = int(max_len)
 args.kernel_sizes = [int(k) for k in args.kernel_sizes.split(',')]
 args.save_dir = os.path.join(args.save_dir, datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+args.snapshot = os.path.join(args.snapshot, '{}_{}.{}'.format(args.model_name, args.data_name,'pt'))
 
 print("\nParameters:")
 for attr, value in sorted(args.__dict__.items()):
     print("\t{}={}".format(attr.upper(), value))
 
 # model
-if args.saved_model is None:
-    cnn = TextCNN(args)
-else:
-    print('\nLoading model from [%s]...' % args.snapshot)
-    try:
-        cnn = torch.load(args.saved_model)
-    except:
-        print("Sorry, This snapshot doesn't exist.")
-        exit()
+
+cnn = TextCNN(args)
 
 
 print("make train_step def")
-def train_step(x_batch, y_batch, x_dev, y_dev,  model, args):
+
+
+
+def train_step(x_batch, y_batch, x_dev, y_dev, x_test, y_test,  model, args):
     model.cuda()
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     model.train()
+    model.zero_grad()
 
     batches = data_helpers.batch_iter(
         list(zip(x_train, y_train)), args.batch_size, args.num_epochs)
 
+    print("")
     for batch in batches:
         x_batch, y_batch = zip(*batch)
         x_batch_Tensor, y_batch_Tensor = data_helpers.tensor4batch(x_batch, y_batch, args)
 
-        x_batch_Variable = Variable(x_batch_Tensor).cuda()
-        y_batch_Variable = Variable(y_batch_Tensor).cuda()
+        x_batch_Variable, y_batch_Variable = Variable(x_batch_Tensor).cuda(), Variable(y_batch_Tensor).cuda()
 
-        optimizer.zero_grad()
+
+        # model.zero_grad()
         logit = model(x_batch_Variable)
 
         loss = F.cross_entropy(logit, torch.max(y_batch_Variable, 1)[1])
@@ -130,14 +127,14 @@ def train_step(x_batch, y_batch, x_dev, y_dev,  model, args):
             corrects = corrects.data.cpu().numpy()[0]
             accuracy = 100.0 * corrects/args.batch_size
             sys.stdout.write(
-                '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(args.iter,
+                '\rTrn||Batch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(args.iter,
                                                                          loss.data[0],
                                                                          accuracy,
                                                                          corrects,
                                                                          args.batch_size))
 
         if args.iter % args.dev_interval == 0:
-            dev_step(x_dev, y_dev, model, args)
+            dev_step(x_dev, y_dev, x_test, y_test, model, args)
 
         if args.iter % args.save_interval == 0:
             if not os.path.isdir(args.save_dir): os.makedirs(args.save_dir)
@@ -145,53 +142,157 @@ def train_step(x_batch, y_batch, x_dev, y_dev,  model, args):
             save_path = '{}_steps{}.pt'.format(save_prefix, args.iter)
             torch.save(model, save_path)
 
+    print("training is over")
+    if not os.path.isdir(args.final_model_dir): os.makedirs(args.final_model_dir)
+    save_prefix = os.path.join(args.final_model_dir, args.model_name)
+    save_path = '{}_{}.pt'.format(save_prefix, args.data_name)
+    torch.save(model, save_path)
+    test(x_test, y_test, args)
+
+
 
 
 print("make dev_step def")
-def dev_step(x_dev, y_dev, model, args):
-    model.cuda()
+def dev_step(x_dev, y_dev, x_test, y_test, model, args, Dev = True):
     model.eval()
-    corrects_dev, avg_loss = 0, 0
+    corrects_dev, avg_loss, iter_dev, avg_auc = 0, 0, 0, 0
+
+    index = 0
 
     batches_dev = data_helpers.batch_iter(
         list(zip(x_dev, y_dev)), args.batch_size, 1)
 
+    print("")
+    y_hat_list = []
     for batch in batches_dev:
         x_dev_batch, y_dev_batch = zip(*batch)
         x_dev_Tensor, y_dev_Tensor = data_helpers.tensor4batch(x_dev_batch, y_dev_batch, args)
 
 
-        x_dev_Variable = Variable(x_dev_Tensor).cuda()
-        y_dev_Variable = Variable(y_dev_Tensor).cuda()
+        x_dev_Variable, y_dev_Variable = Variable(x_dev_Tensor).cuda(), Variable(y_dev_Tensor).cuda()
 
         logit = model(x_dev_Variable)
 
+        iter_dev += 1
+
         loss = F.cross_entropy(logit,  torch.max(y_dev_Variable, 1)[1], size_average=False)
-        avg_loss += loss.data[0]
-        corrects_dev += (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).data.sum()
+        loss_tmp = loss.data.cpu().numpy()[0]
+        corrects_data = (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).data
+        y_hat = torch.max(logit, 1)[1].data.cpu().tolist()
+        y_hat_list.append(y_hat)
+
+        corrects_list = []
+        for i, x in enumerate(corrects_data):
+            index += 1
+            if x == 1:
+                corrects_list.append(index)
+
+        corrects = corrects_data.sum()
+        accuracy = 100.0 * corrects / args.batch_size
+        sys.stdout.write(
+            '\rDev||Batch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{} )'.format(iter_dev,
+                                                                     loss.data[0],
+                                                                     accuracy,
+                                                                     corrects,
+                                                                     args.batch_size
+                                                                     ))
 
 
+        avg_loss += loss_tmp
+        corrects_dev += corrects
+
+    args.corrects_index.extend(corrects_list)
     size = len(y_dev)
-    avg_loss = avg_loss/size
+    avg_loss = avg_loss/iter_dev
     accuracy = 100.0 * corrects_dev/size
 
-    args.list4ES.append(accuracy)
 
-    args.list4ES.append(accuracy)
-    if len(args.list4ES) > 4:
-        sub = args.list4ES[len(args.list4ES) - 1] - args.list4ES[len(args.list4ES) - 5]
-        if abs(sub) < 0.001:
-            if not os.path.isdir(args.save_dir): os.makedirs(args.save_dir)
-            save_prefix = os.path.join(args.save_dir, 'snapshot')
-            save_path = '{}_steps{}.pt'.format(save_prefix, args.iter)
-            torch.save(model, save_path)
-            sys.exit("training is meaningless")
 
-    model.train()
     print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
                                                                        accuracy,
                                                                        corrects_dev,
-                                                                       size))
+                                                                       size
+                                                                       ))
+    if Dev:
+        args.list4ES.append(accuracy)
+        if len(args.list4ES) > 10:
+            sub = args.list4ES[len(args.list4ES) - 1] - args.list4ES[len(args.list4ES) - 5]
+            if abs(sub) < 0.001:
+                print("training is over")
+                if not os.path.isdir(args.final_model_dir): os.makedirs(args.final_model_dir)
+                save_prefix = os.path.join(args.final_model_dir, args.model_name)
+                save_path = '{}_{}.pt'.format(save_prefix, args.data_name)
+                torch.save(model, save_path)
+                test(x_test, y_test, args)
 
 
-train_step(x_train, y_train, x_dev, y_dev, cnn, args)
+def test(x_test, y_test, args):
+    cnn = torch.load(args.snapshot)
+    cnn.cuda()
+    print("Test started")
+
+    cnn.eval()
+    corrects_dev, avg_loss, iter_dev, avg_auc = 0, 0, 0, 0
+
+    index = 0
+
+    batches_dev = data_helpers.batch_iter(
+        list(zip(x_test, y_test)), args.batch_size, 1)
+
+    print("")
+    y_hat_list = []
+    for batch in batches_dev:
+        x_dev_batch, y_dev_batch = zip(*batch)
+        x_dev_Tensor, y_dev_Tensor = data_helpers.tensor4batch(x_dev_batch, y_dev_batch, args)
+
+
+        x_dev_Variable, y_dev_Variable = Variable(x_dev_Tensor).cuda(), Variable(y_dev_Tensor).cuda()
+
+        logit = cnn(x_dev_Variable)
+
+        iter_dev += 1
+
+        loss = F.cross_entropy(logit,  torch.max(y_dev_Variable, 1)[1], size_average=False)
+        loss_tmp = loss.data.cpu().numpy()[0]
+        corrects_data = (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).data
+        y_hat = torch.max(logit, 1)[1].data.cpu().tolist()
+        y_hat_list.append(y_hat)
+
+        corrects_list = []
+        for i, x in enumerate(corrects_data):
+            index += 1
+            if x == 1:
+                corrects_list.append(index)
+
+        corrects = corrects_data.sum()
+        accuracy = 100.0 * corrects / args.batch_size
+        sys.stdout.write(
+            '\rDev||Batch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{} )'.format(iter_dev,
+                                                                     loss.data[0],
+                                                                     accuracy,
+                                                                     corrects,
+                                                                     args.batch_size
+                                                                     ))
+
+
+        avg_loss += loss_tmp
+        corrects_dev += corrects
+
+    args.corrects_index.extend(corrects_list)
+    size = len(y_dev)
+    avg_loss = avg_loss/iter_dev
+    accuracy = 100.0 * corrects_dev/size
+
+
+
+    print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
+                                                                       accuracy,
+                                                                       corrects_dev,
+                                                                       size
+                                                                       ))
+
+
+
+
+train_step(x_train, y_train, x_dev, y_dev, x_test, y_test, cnn, args)
+
