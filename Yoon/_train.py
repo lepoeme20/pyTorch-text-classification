@@ -52,7 +52,7 @@ parser.add_argument('-data-name', type=str, default='Video_Games_5', help='Data 
 args, unknown = parser.parse_known_args()
 
 print("Loading data...")
-x_text, y = data_helpers.load_json(args.json_path, scaling = False)
+x_text, y = data_helpers.load_json(args.json_path, scaling = True)
 max_len = data_helpers.max_len(x_text)
 x, vocab_dic = data_helpers.word2idx_array(x_text, max_len)
 y = np.array(y)
@@ -232,62 +232,55 @@ def test(x_test, y_test, args):
     print("Test started")
 
     cnn.eval()
-    corrects_dev, avg_loss, iter_dev, avg_auc = 0, 0, 0, 0
+    corrects_test, avg_loss, iter_test, avg_auc = 0, 0, 0, 0
 
     index = 0
 
-    batches_dev = data_helpers.batch_iter(
+    batches_test = data_helpers.batch_iter(
         list(zip(x_test, y_test)), args.batch_size, 1)
 
     print("")
     y_hat_list = []
-    for batch in batches_dev:
-        x_dev_batch, y_dev_batch = zip(*batch)
-        x_dev_Tensor, y_dev_Tensor = data_helpers.tensor4batch(x_dev_batch, y_dev_batch, args)
+    for batch in batches_test:
+        x_test_batch, y_test_batch = zip(*batch)
+        x_test_Tensor, y_test_Tensor = data_helpers.tensor4batch(x_test_batch, y_test_batch, args)
 
 
-        x_dev_Variable, y_dev_Variable = Variable(x_dev_Tensor).cuda(), Variable(y_dev_Tensor).cuda()
+        x_test_Variable, y_test_Variable = Variable(x_test_Tensor).cuda(), Variable(y_test_Tensor).cuda()
 
-        logit = cnn(x_dev_Variable)
+        logit = cnn(x_test_Variable)
 
-        iter_dev += 1
+        iter_test += 1
 
-        loss = F.cross_entropy(logit,  torch.max(y_dev_Variable, 1)[1], size_average=False)
+        loss = F.cross_entropy(logit,  torch.max(y_test_Variable, 1)[1], size_average=False)
         loss_tmp = loss.data.cpu().numpy()[0]
-        corrects_data = (torch.max(logit, 1)[1] == torch.max(y_dev_Variable, 1)[1]).data
+        corrects_data = (torch.max(logit, 1)[1] == torch.max(y_test_Variable, 1)[1]).data
         y_hat = torch.max(logit, 1)[1].data.cpu().tolist()
         y_hat_list.append(y_hat)
 
-        corrects_list = []
-        for i, x in enumerate(corrects_data):
-            index += 1
-            if x == 1:
-                corrects_list.append(index)
 
         corrects = corrects_data.sum()
         accuracy = 100.0 * corrects / args.batch_size
         sys.stdout.write(
-            '\rDev||Batch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{} )'.format(iter_dev,
+            '\rDev||Batch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{} )'.format(iter_test,
                                                                      loss.data[0],
                                                                      accuracy,
                                                                      corrects,
                                                                      args.batch_size
                                                                      ))
-
-
         avg_loss += loss_tmp
-        corrects_dev += corrects
+        corrects_test += corrects
 
-    args.corrects_index.extend(corrects_list)
-    size = len(y_dev)
-    avg_loss = avg_loss/iter_dev
-    accuracy = 100.0 * corrects_dev/size
+
+    size = len(y_test)
+    avg_loss = avg_loss/iter_test
+    accuracy = 100.0 * corrects_test/size
 
 
 
     print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
                                                                        accuracy,
-                                                                       corrects_dev,
+                                                                       corrects_test,
                                                                        size
                                                                        ))
 
