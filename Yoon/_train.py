@@ -1,14 +1,13 @@
 import sys
 import os
-sys.path.append(os.getcwd()+'/Yoon')
 import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 import numpy as np
 import argparse
 import datetime
-import data_helpers
-from text_cnn import TextCNN
+from Yoon import data_helpers
+from Yoon.text_cnn import TextCNN
 import time
 
 parser = argparse.ArgumentParser(description='CNN text classificer')
@@ -52,7 +51,7 @@ parser.add_argument('-data-name', type=str, default='Video_Games_5', help='Data 
 args, unknown = parser.parse_known_args()
 
 print("Loading data...")
-x_text, y = data_helpers.load_json(args.json_path, scaling = True)
+x_text, y = data_helpers.load_json(args.json_path, scaling = False)
 max_len = data_helpers.max_len(x_text)
 x, vocab_dic = data_helpers.word2idx_array(x_text, max_len)
 y = np.array(y)

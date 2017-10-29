@@ -85,8 +85,7 @@ def scaling_data(data_from_json, neg_num):
         y.extend(new_y_pos)
         y.extend(y_neg)
     else:
-        new_neg_num = 100000
-        pos_num = 100000
+        num = 100000
         for i, x in enumerate(data_from_json):
             if x['overall'] != 3.:
                 if x['overall'] == 1. or x['overall'] == 2.:
@@ -97,16 +96,21 @@ def scaling_data(data_from_json, neg_num):
                     x_pos.append(x['reviewText'])
                     y_tmp = [0, 1]
                     y_pos.append(y_tmp)
-        shuffle_indices = np.random.permutation(np.arange(pos_num))
+        shuffle_indices = np.random.permutation(np.arange(num))
         new_x_pos = cut_list(x_pos, shuffle_indices)
         new_y_pos = cut_list(y_pos, shuffle_indices)
 
+        shuffle_indices = np.random.permutation(np.arange(num))
+        new_x_neg = cut_list(x_neg, shuffle_indices)
+        new_y_neg = cut_list(y_neg, shuffle_indices)
+
         x_text.extend(new_x_pos)
-        x_text.extend(x_neg)
+        x_text.extend(new_x_neg)
 
         y.extend(new_y_pos)
-        y.extend(y_neg)
+        y.extend(new_y_neg)
     return [x_text, y]
+
 
 
 def cut_list(_list, indices):
